@@ -1,0 +1,91 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Pin Definitions
+#define WATER_LEVEL_PIN 34
+#define HX710B_DOUT     25
+#define HX710B_SCK      26
+#define RELAY_PIN       23
+#define GREEN_LED_PIN   12
+#define RED_LED_PIN     14
+#define I2C_SDA_PIN     27
+#define I2C_SCL_PIN     13
+
+// Safety Thresholds
+const int WATER_LEVEL_CUTOFF = 1500;
+const float PRESSURE_CUTOFF_KPA = 6.0;
+
+// Relay Polarity: set true if your relay module is Active LOW (LOW = ON, HIGH = OFF)
+const bool RELAY_ACTIVE_LOW = true;
+
+// HX710B Calibration Factor (adjust based on your sensor test)
+float pressureScaleFactor = 0.0001;
+
+// 16x2 I2C LCD (Common address: 0x27; change to 0x3F if needed)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+long readHX710B() {
+  while (digitalRead(HX710B_DOUT) == HIGH) {
+    yield();
+  }
+
+  long rawValue = 0;
+  for (int i = 0; i < 24; i++) {
+    digitalWrite(HX710B_SCK, HIGH);
+    delayMicroseconds(1);
+    rawValue = (rawValue << 1) | digitalRead(HX710B_DOUT);
+    digitalWrite(HX710B_SCK, LOW);
+    delayMicroseconds(1);
+  }
+
+  // 25th pulse to set channel/mode for next reading
+  digitalWrite(HX710B_SCK, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(HX710B_SCK, LOW);
+  delayMicroseconds(1);
+
+  // Convert 24-bit two's complement to signed 32-bit long
+  if (rawValue & 0x800000) {
+    rawValue |= ~0xFFFFFFL;
+  }
+
+  return rawValue;
+}
+
+void setRelayState(bool energize) {
+  if (RELAY_ACTIVE_LOW) {
+    digitalWrite(RELAY_PIN, energize ? LOW : HIGH);
+  } else {
+    digitalWrite(RELAY_PIN, energize ? HIGH : LOW);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(WATER_LEVEL_PIN, INPUT);
+  pinMode(HX710B_DOUT, INPUT);
+  pinMode(HX710B_SCK, OUTPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(GREEN_LED_PIN, OUTPUT);
+  pinMode(RED_LED_PIN, OUTPUT);
+
+  digitalWrite(HX710B_SCK, LOW);
+  setRelayState(false);
+  digitalWrite(GREEN_LED_PIN, LOW);
+  digitalWrite(RED_LED_PIN, LOW);
+
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Boiler Monitor");
+  lcd.setCursor(0, 1);
+  lcd.print("Initializing...");
+  delay(1500);
+}
+
+void loop() {
+  int waterLevel = analogRead(WATER_LEVEL_PIN);
+  long rawPressure = readHX710B
